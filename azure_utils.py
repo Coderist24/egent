@@ -1272,6 +1272,47 @@ class EnhancedAzureAIAgentClient:
             logger.error(f"Error listing documents: {e}")
             return []
     
+    def download_document(self, container_name: str, file_name: str) -> Dict:
+        """Download document from blob storage"""
+        try:
+            logger.info(f"Downloading document '{file_name}' from container '{container_name}'")
+            
+            # Get blob client for the specific file
+            container_client = self.blob_client.get_container_client(container_name)
+            blob_client = container_client.get_blob_client(file_name)
+            
+            # Check if blob exists
+            if not blob_client.exists():
+                logger.warning(f"Document '{file_name}' not found in container '{container_name}'")
+                return {
+                    'success': False,
+                    'message': f"Document '{file_name}' not found"
+                }
+            
+            # Download blob content
+            blob_data = blob_client.download_blob().readall()
+            
+            # Get blob properties for metadata
+            blob_properties = blob_client.get_blob_properties()
+            
+            logger.info(f"Successfully downloaded '{file_name}' ({len(blob_data)} bytes)")
+            
+            return {
+                'success': True,
+                'content': blob_data,
+                'size': len(blob_data),
+                'content_type': blob_properties.content_settings.content_type,
+                'last_modified': blob_properties.last_modified,
+                'message': f"Successfully downloaded {file_name}"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error downloading document '{file_name}': {e}")
+            return {
+                'success': False,
+                'message': f"Download failed: {str(e)}"
+            }
+    
     def delete_document(self, container_name: str, file_name: str, index_name: str = None):
         """Delete document from container and ensure removal from search index"""
         try:
@@ -2435,6 +2476,11 @@ class BlobStorageUserManager:
     def has_permission(self, username: str, agent_id: str, permission_type: str) -> bool:
         """Check if user has specific permission for agent"""
         try:
+            # Return False if username or agent_id is None/empty
+            if not username or not agent_id:
+                logger.warning(f"has_permission called with invalid parameters: username={username}, agent_id={agent_id}")
+                return False
+                
             user_permissions = self.get_user_permissions(username)
             permissions = user_permissions.get('permissions', [])
             role = user_permissions.get('role', 'guest')
@@ -2461,9 +2507,9 @@ class BlobStorageUserManager:
                 if specific_permission in permissions:
                     return True
                 
-                # For standard users, provide default access to basic functions
-                if role == "standard" and permission_type in ["access", "chat"]:
-                    return True
+                # *** REMOVED DEFAULT PERMISSIONS FOR STANDARD USERS ***
+                # Standard users must have explicit permissions granted
+                # No default access/chat permissions anymore
             
             return False
             

@@ -166,7 +166,9 @@ def show_login_page():
                 submitted = st.form_submit_button("Login as Admin", type="primary")
                 
                 if submitted:
-                    if st.session_state.user_manager.authenticate_admin(username, password):
+                    if not st.session_state.user_manager:
+                        st.error("❌ User management system is not available. Please contact administrator.")
+                    elif st.session_state.user_manager.authenticate_admin(username, password):
                         st.session_state.authenticated = True
                         st.session_state.current_user = username
                         st.session_state.user_role = "admin"
@@ -229,6 +231,12 @@ def show_login_page():
                             "https://graph.microsoft.com/v1.0/me",
                             headers={"Authorization": f"Bearer {result['access_token']}"}
                         ).json()
+                        
+                        # Check if user_manager is available before setting user info
+                        if not st.session_state.user_manager:
+                            st.error("❌ User management system is not available. Please contact administrator.")
+                            return
+                            
                         st.session_state.authenticated = True
                         st.session_state.current_user = user.get("userPrincipalName", user.get("mail", ""))
                         st.session_state.user_role = "azure_user"
@@ -275,8 +283,12 @@ def show_dashboard():
             st.session_state.current_page = "login"
             st.rerun()
     
-    # User info
+    # User info with permission status
     st.info(f"👋 Welcome {st.session_state.current_user} ({st.session_state.user_role})")
+    
+    # Show warning if user_manager is not available
+    if not st.session_state.user_manager and st.session_state.user_role != "admin":
+        st.warning("⚠️ User management system is not available. Access to agents may be limited.")
     
     # Agent grid
     st.subheader("🤖 Available AI Agents")
@@ -384,11 +396,19 @@ def show_dashboard():
         col = cols[idx % 3]
         
         with col:
-            # Check permissions - bypass user_manager if None (testing mode)
-            has_access = (st.session_state.user_role == "admin" or 
-                         (st.session_state.user_manager and 
-                          st.session_state.user_manager.has_permission(
-                             st.session_state.current_user, agent_id, "access")))
+            # Check permissions - require user_manager unless admin
+            if st.session_state.user_role == "admin":
+                has_access = True
+            elif not st.session_state.user_manager:
+                # If user_manager is None, only admin can access
+                has_access = False
+            elif not st.session_state.current_user:
+                # If no current user, no access
+                has_access = False
+            else:
+                # Check actual permissions
+                has_access = st.session_state.user_manager.has_permission(
+                    st.session_state.current_user, agent_id, "access")
             
             # Agent card
             card_style = "agent-card" if has_access else "agent-card" + " opacity: 0.5;"
@@ -432,6 +452,29 @@ def show_agent_interface():
         return
     
     agent_config = agents[st.session_state.selected_agent]
+    agent_id = st.session_state.selected_agent
+    
+    # *** IMPORTANT: Check access permission before allowing entry to agent interface ***
+    if st.session_state.user_role == "admin":
+        has_access = True
+    elif not st.session_state.user_manager:
+        # If user_manager is None, only admin can access
+        has_access = False
+    elif not st.session_state.current_user:
+        # If no current user, no access
+        has_access = False
+    else:
+        # Check actual permissions
+        has_access = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "access")
+    
+    if not has_access:
+        st.error("🚫 Access Denied: You don't have permission to access this agent")
+        st.warning("⚠️ Please contact your administrator to request access permissions.")
+        if st.button("🏠 Back to Dashboard"):
+            st.session_state.current_page = "dashboard"
+            st.rerun()
+        return
     
     # Header
     col1, col2 = st.columns([4, 1])
@@ -465,7 +508,23 @@ def show_agent_chat(agent_config: Dict):
     
     agent_id = agent_config['id']
     
-    # Initialize agent client if needed
+    # Check permissions first - before any connection attempts
+    if st.session_state.user_role == "admin":
+        can_chat = True
+    elif not st.session_state.user_manager:
+        can_chat = False
+    elif not st.session_state.current_user:
+        can_chat = False
+    else:
+        can_chat = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "chat")
+    
+    if not can_chat:
+        st.error("🚫 Chat Access Denied: You don't have chat permission for this agent")
+        st.warning("⚠️ Please contact your administrator to request chat permissions.")
+        return
+
+    # Initialize agent client if needed (only after permission check)
     if agent_id not in st.session_state.ai_clients:
         try:
             with st.spinner("🔄 Connecting to Azure AI Foundry agent..."):
@@ -515,15 +574,6 @@ def show_agent_chat(agent_config: Dict):
             logger.error(f"Error connecting to agent {agent_id}: {e}")
             st.error(f"❌ Connection Failed: {str(e)}")
             return
-    # Check permissions
-    can_chat = (st.session_state.user_role == "admin" or 
-                (st.session_state.user_manager and
-                 st.session_state.user_manager.has_permission(
-                    st.session_state.current_user, agent_id, "chat")))
-    
-    if not can_chat:
-        st.warning("⚠️ You don't have chat permission for this agent")
-        return
     
     # Check connection status
     connection_status = st.session_state.connection_status.get(agent_id, False)
@@ -625,16 +675,28 @@ def show_document_management(agent_config: Dict):
     
     agent_id = agent_config['id']
     
-    # Check permissions
-    can_upload = (st.session_state.user_role == "admin" or 
-                  st.session_state.user_manager.has_permission(
-                      st.session_state.current_user, agent_id, "document_upload"))
+    # Check permissions first
+    if st.session_state.user_role == "admin":
+        can_upload = True
+        can_delete = True
+        can_download = True
+    elif not st.session_state.user_manager or not st.session_state.current_user:
+        can_upload = False
+        can_delete = False
+        can_download = False
+    else:
+        can_upload = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "document_upload")
+        can_delete = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "document_delete")
+        can_download = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "document_download")
     
-    can_delete = (st.session_state.user_role == "admin" or 
-                  st.session_state.user_manager.has_permission(
-                      st.session_state.current_user, agent_id, "document_delete"))
-    
-
+    # Show permission status
+    if not can_upload and not can_delete and not can_download:
+        st.error("🚫 Document Access Denied: You don't have any document management permissions for this agent")
+        st.warning("⚠️ Please contact your administrator to request document upload, download, or delete permissions.")
+        return
     
     # Document upload section
     if can_upload:
@@ -733,13 +795,27 @@ def show_document_management(agent_config: Dict):
                         st.write("3. Try uploading one file at a time")
                         st.write("4. Contact administrator if the problem persists")
     else:
-        st.warning("⚠️ You don't have document upload permission for this agent")
-    
-
+        st.info("ℹ️ Document upload permission not available for this agent")
     
     st.markdown("---")
     
-    # Document list section
+    # Document list section - check permission to view documents
+    if st.session_state.user_role == "admin":
+        can_view_docs = True
+    elif can_upload or can_delete or can_download:
+        # If user can upload/delete/download, they can view
+        can_view_docs = True
+    elif not st.session_state.user_manager or not st.session_state.current_user:
+        can_view_docs = False
+    else:
+        # Basic access allows viewing
+        can_view_docs = st.session_state.user_manager.has_permission(
+            st.session_state.current_user, agent_id, "access")
+    
+    if not can_view_docs:
+        st.warning("⚠️ You don't have permission to view documents for this agent")
+        return
+    
     st.subheader("📁 Document Library")
     
     try:
@@ -778,8 +854,27 @@ def show_document_management(agent_config: Dict):
                         st.write(f"**Type:** {doc['content_type']}")
                     
                     with col2:
-                        if st.button("📥 Download", key=f"download_{agent_id}_{idx}"):
-                            st.info("Download functionality coming soon!")
+                        if can_download:
+                            if st.button("📥 Download", key=f"download_{agent_id}_{idx}"):
+                                try:
+                                    # Download document from blob storage
+                                    download_result = client.download_document(container_name, doc['name'])
+                                    if download_result['success']:
+                                        # Provide download button
+                                        st.download_button(
+                                            label=f"💾 Save {doc['name']}",
+                                            data=download_result['content'],
+                                            file_name=doc['name'],
+                                            mime=doc.get('content_type', 'application/octet-stream'),
+                                            key=f"save_{agent_id}_{idx}"
+                                        )
+                                        st.success(f"✅ {doc['name']} ready for download!")
+                                    else:
+                                        st.error(f"❌ Failed to download {doc['name']}: {download_result.get('message', 'Unknown error')}")
+                                except Exception as e:
+                                    st.error(f"❌ Download error: {str(e)}")
+                        else:
+                            st.write("🔒 No download permission")
                     
                     with col3:
                         if can_delete:
@@ -921,7 +1016,7 @@ def show_blob_user_management_tab():
             
             for agent_id, agent_config in agents.items():
                 st.write(f"**{agent_config['name']} ({agent_id})**")
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 
                 with col1:
                     access = st.checkbox(f"Access", key=f"blob_new_access_{agent_id}")
@@ -930,12 +1025,15 @@ def show_blob_user_management_tab():
                 with col3:
                     upload = st.checkbox(f"Upload", key=f"blob_new_upload_{agent_id}")
                 with col4:
+                    download = st.checkbox(f"Download", key=f"blob_new_download_{agent_id}")
+                with col5:
                     delete = st.checkbox(f"Delete", key=f"blob_new_delete_{agent_id}")
                 
                 new_permissions[agent_id] = {
                     'access': access,
                     'chat': chat,
                     'document_upload': upload,
+                    'document_download': download,
                     'document_delete': delete
                 }
             
@@ -991,6 +1089,7 @@ def show_blob_user_management_tab():
                         has_access = f"{agent_id}:access" in user_permissions or "access" in user_permissions
                         has_chat = f"{agent_id}:chat" in user_permissions or "chat" in user_permissions
                         has_upload = f"{agent_id}:document_upload" in user_permissions or "document_upload" in user_permissions
+                        has_download = f"{agent_id}:document_download" in user_permissions or "document_download" in user_permissions
                         has_delete = f"{agent_id}:document_delete" in user_permissions or "document_delete" in user_permissions
                     else:
                         # Old dictionary format (fallback)
@@ -998,6 +1097,7 @@ def show_blob_user_management_tab():
                         has_access = user_perms.get('access', False)
                         has_chat = user_perms.get('chat', False)
                         has_upload = user_perms.get('document_upload', False)
+                        has_download = user_perms.get('document_download', False)
                         has_delete = user_perms.get('document_delete', False)
                     
                     permission_data.append({
@@ -1006,6 +1106,7 @@ def show_blob_user_management_tab():
                         'Access': '✅' if has_access else '❌',
                         'Chat': '✅' if has_chat else '❌',
                         'Upload': '✅' if has_upload else '❌',
+                        'Download': '✅' if has_download else '❌',
                         'Delete': '✅' if has_delete else '❌'
                     })
                 
@@ -1028,7 +1129,7 @@ def show_blob_user_management_tab():
                         
                         for agent_id, agent_config in agents.items():
                             st.write(f"**{agent_config['name']} ({agent_id})**")
-                            col1, col2, col3, col4 = st.columns(4)
+                            col1, col2, col3, col4, col5 = st.columns(5)
                             
                             # Get current permissions in both formats
                             user_permissions = user_data.get('permissions', [])
@@ -1037,6 +1138,7 @@ def show_blob_user_management_tab():
                                 current_access = f"{agent_id}:access" in user_permissions or "access" in user_permissions
                                 current_chat = f"{agent_id}:chat" in user_permissions or "chat" in user_permissions
                                 current_upload = f"{agent_id}:document_upload" in user_permissions or "document_upload" in user_permissions
+                                current_download = f"{agent_id}:document_download" in user_permissions or "document_download" in user_permissions
                                 current_delete = f"{agent_id}:document_delete" in user_permissions or "document_delete" in user_permissions
                             else:
                                 # Old dictionary format (fallback)
@@ -1044,6 +1146,7 @@ def show_blob_user_management_tab():
                                 current_access = current_perms.get('access', False)
                                 current_chat = current_perms.get('chat', False)
                                 current_upload = current_perms.get('document_upload', False)
+                                current_download = current_perms.get('document_download', False)
                                 current_delete = current_perms.get('document_delete', False)
                             
                             with col1:
@@ -1059,6 +1162,10 @@ def show_blob_user_management_tab():
                                                     value=current_upload,
                                                     key=f"edit_upload_{username}_{agent_id}")
                             with col4:
+                                download = st.checkbox("Download", 
+                                                      value=current_download,
+                                                      key=f"edit_download_{username}_{agent_id}")
+                            with col5:
                                 delete = st.checkbox("Delete", 
                                                     value=current_delete,
                                                     key=f"edit_delete_{username}_{agent_id}")
@@ -1070,6 +1177,8 @@ def show_blob_user_management_tab():
                                 updated_permissions.append(f"{agent_id}:chat")
                             if upload:
                                 updated_permissions.append(f"{agent_id}:document_upload")
+                            if download:
+                                updated_permissions.append(f"{agent_id}:document_download")
                             if delete:
                                 updated_permissions.append(f"{agent_id}:document_delete")
                         
