@@ -19,17 +19,10 @@ try:
     env_path = os.path.join(os.path.dirname(__file__), 'azure-app-settings.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
-        logging.info(f"Loaded environment variables from {env_path}")
-        # Debug: Show loaded environment variables
-        logging.info(f"AZURE_CLIENT_ID: {'SET' if os.environ.get('AZURE_CLIENT_ID') else 'NOT SET'}")
-        logging.info(f"AZURE_TENANT_ID: {'SET' if os.environ.get('AZURE_TENANT_ID') else 'NOT SET'}")
-        logging.info(f"AZURE_SUBSCRIPTION_ID: {'SET' if os.environ.get('AZURE_SUBSCRIPTION_ID') else 'NOT SET'}")
     else:
-        logging.warning(f"Environment file not found at {env_path}")
         load_dotenv()
-        logging.info("Loaded default environment variables")
 except ImportError:
-    logging.info("python-dotenv not available, using system environment variables")
+    pass
 
 # Azure imports
 from azure.ai.projects import AIProjectClient
@@ -47,7 +40,7 @@ from azure_utils import AzureConfig, EnhancedAzureAIAgentClient, AzureAuthentica
 import io
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Page configuration
@@ -327,7 +320,6 @@ def load_heavy_libraries():
             'docx': docx
         }
     except ImportError as e:
-        logger.warning(f"Heavy libraries not available: {e}")
         return {}
 
 # Agent configuration and management
@@ -344,7 +336,6 @@ class AgentManager:
             return self.blob_agent_manager.get_agent(agent_id)
         except TypeError as e:
             # Handle the error gracefully
-            logger.error(f"Error getting agent: {e}")
             return None
     
     def get_all_agents(self) -> Dict[str, Dict]:
@@ -436,7 +427,6 @@ class DocumentProcessor:
                 text += page.extract_text() + "\n"
             return text
         except Exception as e:
-            logger.error(f"Error extracting text from PDF: {e}")
             return f"Error processing PDF: {str(e)}"
     
     @staticmethod
@@ -453,7 +443,6 @@ class DocumentProcessor:
                 text += paragraph.text + "\n"
             return text
         except Exception as e:
-            logger.error(f"Error extracting text from DOCX: {e}")
             return f"Error processing DOCX: {str(e)}"
     
     @staticmethod
@@ -465,7 +454,6 @@ class DocumentProcessor:
             try:
                 return file_content.decode('latin-1')
             except Exception as e:
-                logger.error(f"Error extracting text from TXT: {e}")
                 return f"Error processing TXT: {str(e)}"
 
 # Initialize session state
@@ -480,11 +468,9 @@ def initialize_session_state():
         
         # Safety check: ensure agents is always a dictionary
         if not isinstance(agents, dict):
-            logger.warning(f"Agent manager returned non-dict type: {type(agents)}")
             agents = {}
         
     except Exception as e:
-        logger.error(f"Error initializing agent manager: {e}")
         # Fallback to backup configuration even on error
         backup_path = "config_backup/agent_configs.json"
         if os.path.exists(backup_path):
@@ -509,9 +495,7 @@ def initialize_session_state():
                             'search_index': config.get('search_index', f'{agent_id}-index'),
                             'enabled': config.get('enabled', True)
                         }
-                logger.info(f"Fallback: Loaded {len(agents)} agents from backup configuration")
             except Exception as backup_error:
-                logger.error(f"Error loading backup configuration: {backup_error}")
                 agents = {}
         else:
             agents = {}
@@ -520,7 +504,6 @@ def initialize_session_state():
     try:
         user_manager = UserManager()
     except Exception as e:
-        logger.error(f"Error creating UserManager: {e}")
         user_manager = None
     
     session_vars = {

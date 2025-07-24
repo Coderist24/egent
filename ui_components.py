@@ -303,29 +303,16 @@ def show_dashboard():
         st.session_state.agents = {}
     
     # Header with logout
-    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+    col1, col2, col3 = st.columns([4, 1, 1])
     with col1:
         st.markdown('<h1 class="main-header">🤖 EGEnts Dashboard</h1>', 
                     unsafe_allow_html=True)
     with col2:
-        # Add refresh button to force reload agents
-        if st.button("🔄 Refresh", help="Reload agents from storage"):
-            # Clear cached agents to force reload
-            if "agents" in st.session_state:
-                del st.session_state["agents"]
-            st.rerun()
-    with col3:
         if st.session_state.user_role == "admin":
             if st.button("⚙️ Settings"):
                 st.session_state.current_page = "settings"
                 st.rerun()
-    with col4:
-        # Debug toggle (only for admins)
-        if is_admin_user():
-            if st.button("🔍 Debug"):
-                st.session_state.show_debug = not st.session_state.get('show_debug', False)
-                st.rerun()
-    with col5:
+    with col3:
         if st.button("🚪 Logout"):
             # Reset session state
             for key in list(st.session_state.keys()):
@@ -339,15 +326,6 @@ def show_dashboard():
     if is_admin_user():
         user_info += " - 🔑 Admin Access"
     st.info(user_info)
-    
-    # Show debug info if needed
-    if st.session_state.get('show_debug', False):
-        st.write(f"**Debug Info:**")
-        st.write(f"- User Role: {st.session_state.get('user_role', 'None')}")
-        st.write(f"- Current User: {st.session_state.get('current_user', 'None')}")
-        st.write(f"- Is Admin (function): {is_admin_user()}")
-        st.write(f"- User Manager Available: {st.session_state.get('user_manager') is not None}")
-        st.write(f"- Admin Users Config: {ADMIN_USERS}")
     
     # Show warning if user_manager is not available
     if not st.session_state.user_manager and st.session_state.user_role != "admin":
