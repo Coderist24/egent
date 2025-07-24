@@ -2370,35 +2370,73 @@ class BlobStorageUserManager:
                     break
             
             if not admin_exists:
-                logger.info("No admin user found, creating default admin")
-                self.add_user('admin', 'admin')
-                logger.info("Default admin user created with username: admin, password: G5x!bQz2Lp9")
+                logger.warning("⚠️ No admin user found in blob storage!")
+                logger.info("💡 Admin users must be created manually through blob storage.")
+                logger.info("💡 Create an admin user with role='admin' and appropriate password_hash.")
                 
         except Exception as e:
-            logger.error(f"Error initializing default admin: {e}")
-            # In case of error, still try to create admin
-            try:
-                self.add_user('admin', 'admin')
-                logger.info("Fallback: Default admin user created")
-            except Exception as fallback_error:
-                logger.error(f"Fallback admin creation also failed: {fallback_error}")
+            logger.error(f"Error checking for admin users: {e}")
+            logger.warning("⚠️ Cannot verify admin user existence - blob storage may not be accessible")
     
     def _hash_password(self, password: str) -> str:
         """Hash password using SHA256"""
         return hashlib.sha256(password.encode()).hexdigest()
     
+    def create_admin_user(self, username: str, password: str) -> bool:
+        """Create a new admin user with secure password - helper function for initial setup"""
+        try:
+            if not self.blob_client:
+                logger.error("❌ Blob client not available for admin user creation")
+                return False
+                
+            user_data = {
+                'username': username,
+                'password_hash': self._hash_password(password),
+                'role': 'admin',
+                'permissions': ['all'],  # Admin has all permissions
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            blob_name = f"{username}.json"
+            blob_client = self.blob_client.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+            
+            blob_client.upload_blob(
+                json.dumps(user_data, indent=2).encode('utf-8'),
+                overwrite=True
+            )
+            
+            logger.info(f"✅ Admin user '{username}' created successfully in blob storage")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating admin user: {e}")
+            return False
+
     def authenticate_admin(self, username: str, password: str) -> bool:
-        """Authenticate admin user"""
+        """Authenticate admin user - requires admin credentials from blob storage"""
         try:
             user_data = self.get_user(username)
             if not user_data:
+                logger.warning(f"Admin user '{username}' not found in blob storage")
                 return False
                 
             if user_data.get('role') != 'admin':
+                logger.warning(f"User '{username}' is not an admin")
                 return False
                 
             password_hash = self._hash_password(password)
-            return user_data.get('password_hash') == password_hash
+            is_authenticated = user_data.get('password_hash') == password_hash
+            
+            if is_authenticated:
+                logger.info(f"Admin '{username}' authenticated successfully from blob storage")
+            else:
+                logger.warning(f"Invalid password for admin '{username}'")
+                
+            return is_authenticated
             
         except Exception as e:
             logger.error(f"Error authenticating admin {username}: {e}")
@@ -2517,17 +2555,12 @@ class BlobStorageUserManager:
             logger.error(f"Error checking permission for {username}: {e}")
             return False
     
-    def add_user(self, username: str, role: str, permissions: List[str] = None) -> bool:
-        """Add new user"""
+    def add_user(self, username: str, role: str, password: str, permissions: List[str] = None) -> bool:
+        """Add new user with explicit password requirement"""
         try:
             if not self.blob_client:
+                logger.error("❌ Blob client not available for user creation")
                 return False
-                
-            # Generate default password for admin
-            if role == "admin":
-                default_password = "G5x!bQz2Lp9"
-            else:
-                default_password = f"{username}123"
             
             # Get default permissions if none provided
             if permissions is None:
@@ -2535,7 +2568,7 @@ class BlobStorageUserManager:
             
             user_data = {
                 'username': username,
-                'password_hash': self._hash_password(default_password),
+                'password_hash': self._hash_password(password),
                 'role': role,
                 'permissions': permissions,
                 'created_at': datetime.now().isoformat(),
@@ -2553,6 +2586,7 @@ class BlobStorageUserManager:
                 overwrite=True
             )
             
+            logger.info(f"✅ User '{username}' created successfully with role '{role}'")
             return True
             
         except Exception as e:
@@ -2801,9 +2835,9 @@ class UserManager:
         """Check if user has specific permission for agent"""
         return self.blob_user_manager.has_permission(username, agent_id, permission_type)
     
-    def add_user(self, username: str, role: str = "standard", permissions: List[str] = None) -> bool:
-        """Add a new user"""
-        return self.blob_user_manager.add_user(username, role, permissions or [])
+    def add_user(self, username: str, role: str, password: str, permissions: List[str] = None) -> bool:
+        """Add a new user with explicit password requirement"""
+        return self.blob_user_manager.add_user(username, role, password, permissions or [])
     
     def update_user_permissions(self, username: str, permissions: List[str]) -> bool:
         """Update user permissions"""

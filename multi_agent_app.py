@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
-    page_title="Azure Multi-Agent AI Platform",
+    page_title="EGEnt AI Platform",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -89,15 +89,6 @@ st.markdown("""
     
     .agent-icon {
         font-size: 3rem;
-        margin-bottom: 1rem;
-        text-align: center;
-    }
-    
-    .agent-title {
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #0078d4;
-        margin-bottom: 0.5rem;
         text-align: center;
     }
     
@@ -114,22 +105,81 @@ st.markdown("""
         font-size: 0.8rem;
         color: #555;
     }
+    /* .login-container ve büyük login butonu kaldırıldı */
     
-    .chat-message {
+    /* WhatsApp benzeri chat baloncukları */
+    .chat-container {
+        background: #f5f5f5;
         padding: 1rem;
-        border-radius: 10px;
+        border-radius: 15px;
+        max-height: 600px;
+        overflow-y: auto;
+        margin: 1rem 0;
+    }
+    
+    .message-bubble {
+        max-width: 70%;
         margin: 0.5rem 0;
-        animation: fadeIn 0.5s ease-in;
+        padding: 0.8rem 1.2rem;
+        border-radius: 18px;
+        word-wrap: break-word;
+        position: relative;
+        animation: fadeIn 0.3s ease-in;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
     .user-message {
-        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-        border-left: 4px solid #2196f3;
+        background: #dcf8c6;
+        margin-left: 1rem;
+        margin-right: auto;
+        border-bottom-left-radius: 5px;
+        border: 1px solid #b7e4a3;
+    }
+    
+    .user-message::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: -8px;
+        width: 0;
+        height: 0;
+        border: 8px solid transparent;
+        border-right-color: #dcf8c6;
+        border-bottom: 0;
     }
     
     .assistant-message {
-        background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
-        border-left: 4px solid #9c27b0;
+        background: #ffffff;
+        margin-left: auto;
+        margin-right: 1rem;
+        border-bottom-right-radius: 5px;
+        border: 1px solid #e5e5ea;
+    }
+    
+    .assistant-message::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        right: -8px;
+        width: 0;
+        height: 0;
+        border: 8px solid transparent;
+        border-left-color: #ffffff;
+        border-bottom: 0;
+    }
+    
+    .message-time {
+        font-size: 0.7rem;
+        color: #666;
+        margin-top: 0.3rem;
+        text-align: right;
+    }
+    
+    .message-sender {
+        font-size: 0.8rem;
+        font-weight: bold;
+        margin-bottom: 0.3rem;
+        color: #0078d4;
     }
     
     .document-reference {
@@ -348,9 +398,9 @@ class UserManager:
         """Check if user has specific permission for agent"""
         return self.blob_user_manager.has_permission(username, agent_id, permission_type)
     
-    def add_user(self, username: str, role: str = "standard", permissions: List[str] = None) -> bool:
-        """Add a new user"""
-        return self.blob_user_manager.add_user(username, role, permissions or [])
+    def add_user(self, username: str, role: str, password: str, permissions: List[str] = None) -> bool:
+        """Add a new user with explicit password requirement"""
+        return self.blob_user_manager.add_user(username, role, password, permissions or [])
     
     def update_user_permissions(self, username: str, permissions: List[str]) -> bool:
         """Update user permissions"""

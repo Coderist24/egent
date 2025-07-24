@@ -17,6 +17,37 @@ from typing import Dict, List
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Configuration-based admin users (fallback when user_manager is not available)
+ADMIN_USERS = [
+    "admin",  # Default admin username
+    "administrator@yourdomain.com",  # Add your admin email addresses here
+    # Add more admin emails as needed
+]
+
+def is_admin_user(username: str = None) -> bool:
+    """Check if the current user or specified username is an admin"""
+    if username is None:
+        username = st.session_state.get('current_user', '')
+    
+    # Check session state role first
+    if st.session_state.get('user_role') == 'admin':
+        return True
+    
+    # Check configuration-based admin list
+    if username in ADMIN_USERS:
+        return True
+    
+    # Check user_manager if available
+    if st.session_state.get('user_manager') and username:
+        try:
+            user_data = st.session_state.user_manager.get_user(username)
+            if user_data and isinstance(user_data, dict):
+                return user_data.get('role') == 'admin'
+        except Exception:
+            pass
+    
+    return False
+
 def format_message_with_references(content: str) -> str:
     """Format message content to display references with special styling"""
     import re
@@ -134,27 +165,20 @@ def show_icon_selector(default_icon: str = "🤖", key: str = "icon_selector", u
 def show_login_page():
     """Display the login page with two authentication options"""
     
-    st.markdown('<h1 class="main-header">🤖 Azure Multi-Agent AI Platform</h1>', 
+    st.markdown('<h1 class="main-header">🤖 EGEnt AI Platform</h1>', 
                 unsafe_allow_html=True)
     
     # Login container
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("""
-        <div class="login-container">
-            <h2 style="text-align: center; margin-bottom: 2rem;">🔐 Login</h2>
-        """, unsafe_allow_html=True)
-        
-        # Login method selection
+        # Login method selection (büyük login butonu kaldırıldı)
         login_method = st.radio(
             "Choose login method:",
             ["🔑 Admin Login", "☁️ Azure User Login"],
             index=1,  # Default to Azure User Login (index 1)
             horizontal=True
         )
-        
-        st.markdown("</div>", unsafe_allow_html=True)
         
         # Login forms
         if login_method == "🔑 Admin Login":
@@ -232,17 +256,38 @@ def show_login_page():
                             headers={"Authorization": f"Bearer {result['access_token']}"}
                         ).json()
                         
+                        user_email = user.get("userPrincipalName", user.get("mail", ""))
+                        
                         # Check if user_manager is available before setting user info
                         if not st.session_state.user_manager:
-                            st.error("❌ User management system is not available. Please contact administrator.")
-                            return
-                            
+                            # Fallback: Check if user is in ADMIN_USERS configuration
+                            if user_email in ADMIN_USERS:
+                                user_role = "admin"
+                                st.info(f"✅ Admin access granted via configuration (user_manager unavailable)")
+                            else:
+                                user_role = "standard"
+                                st.warning(f"⚠️ User management system unavailable. Limited access granted.")
+                        else:
+                            # Check if the Azure user is registered in the system and get their role
+                            user_data = st.session_state.user_manager.get_user(user_email)
+                            if user_data and isinstance(user_data, dict):
+                                # User exists in system, use their assigned role
+                                user_role = user_data.get('role', 'standard')
+                            else:
+                                # New Azure user, check fallback admin list
+                                if user_email in ADMIN_USERS:
+                                    user_role = "admin"
+                                    st.info(f"✅ Admin access granted via configuration")
+                                else:
+                                    user_role = 'standard'
+                                    st.info(f"ℹ️ New Azure user detected. Contact administrator for permission setup.")
+                        
                         st.session_state.authenticated = True
-                        st.session_state.current_user = user.get("userPrincipalName", user.get("mail", ""))
-                        st.session_state.user_role = "azure_user"
+                        st.session_state.current_user = user_email
+                        st.session_state.user_role = user_role  # Use the determined role
                         st.session_state.current_page = "dashboard"
                         st.session_state.token = result
-                        st.success("✅ Azure AD girişi başarılı!")
+                        st.success(f"✅ Azure AD girişi başarılı! Role: {user_role}")
                         st.rerun()
                     else:
                         st.error("Giriş başarısız: " + str(result.get("error_description", "Bilinmeyen hata")))
@@ -258,9 +303,9 @@ def show_dashboard():
         st.session_state.agents = {}
     
     # Header with logout
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+    col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
     with col1:
-        st.markdown('<h1 class="main-header">🤖 Azure AI Agents Dashboard</h1>', 
+        st.markdown('<h1 class="main-header">🤖 EGEnts Dashboard</h1>', 
                     unsafe_allow_html=True)
     with col2:
         # Add refresh button to force reload agents
@@ -275,6 +320,12 @@ def show_dashboard():
                 st.session_state.current_page = "settings"
                 st.rerun()
     with col4:
+        # Debug toggle (only for admins)
+        if is_admin_user():
+            if st.button("🔍 Debug"):
+                st.session_state.show_debug = not st.session_state.get('show_debug', False)
+                st.rerun()
+    with col5:
         if st.button("🚪 Logout"):
             # Reset session state
             for key in list(st.session_state.keys()):
@@ -284,7 +335,19 @@ def show_dashboard():
             st.rerun()
     
     # User info with permission status
-    st.info(f"👋 Welcome {st.session_state.current_user} ({st.session_state.user_role})")
+    user_info = f"👋 Welcome {st.session_state.current_user} ({st.session_state.user_role})"
+    if is_admin_user():
+        user_info += " - 🔑 Admin Access"
+    st.info(user_info)
+    
+    # Show debug info if needed
+    if st.session_state.get('show_debug', False):
+        st.write(f"**Debug Info:**")
+        st.write(f"- User Role: {st.session_state.get('user_role', 'None')}")
+        st.write(f"- Current User: {st.session_state.get('current_user', 'None')}")
+        st.write(f"- Is Admin (function): {is_admin_user()}")
+        st.write(f"- User Manager Available: {st.session_state.get('user_manager') is not None}")
+        st.write(f"- Admin Users Config: {ADMIN_USERS}")
     
     # Show warning if user_manager is not available
     if not st.session_state.user_manager and st.session_state.user_role != "admin":
@@ -581,28 +644,33 @@ def show_agent_chat(agent_config: Dict):
         st.error("❌ Azure AI Foundry connection required")
         return
     
-    # Display chat messages
-    chat_container = st.container()
-    with chat_container:
-        agent_messages = st.session_state.messages.get(agent_id, [])
+    # Display chat messages with WhatsApp-style bubbles
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    agent_messages = st.session_state.messages.get(agent_id, [])
+    
+    for i, message in enumerate(agent_messages):
+        message_time = datetime.now().strftime("%H:%M")
         
-        for message in agent_messages:
-            if message["role"] == "user":
-                formatted_content = format_message_with_references(message["content"])
-                st.markdown(f"""
-                <div class="chat-message user-message">
-                    <strong>👤 You:</strong><br>
-                    {formatted_content}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                formatted_content = format_message_with_references(message["content"])
-                st.markdown(f"""
-                <div class="chat-message assistant-message">
-                    <strong>{agent_config['icon']} {agent_config['name']}:</strong><br>
-                    {formatted_content}
-                </div>
-                """, unsafe_allow_html=True)
+        if message["role"] == "user":
+            formatted_content = format_message_with_references(message["content"])
+            st.markdown(f"""
+            <div class="message-bubble user-message">
+                {formatted_content}
+                <div class="message-time">{message_time}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            formatted_content = format_message_with_references(message["content"])
+            st.markdown(f"""
+            <div class="message-bubble assistant-message">
+                <div class="message-sender">{agent_config['icon']} {agent_config['name']}</div>
+                {formatted_content}
+                <div class="message-time">{message_time}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Chat input
     user_input = st.chat_input(f"Ask {agent_config['name']}...", key=f"chat_{agent_id}")
@@ -836,62 +904,136 @@ def show_document_management(agent_config: Dict):
         documents = client.list_documents(container_name)
         
         if documents:
-            # Add size_mb to each document
-            for doc in documents:
+            # Add document search and bulk operations with right-aligned delete button
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                # Search functionality - compact input field
+                search_query = st.text_input("🔍 Ara:", 
+                                           placeholder="Doküman adı...",
+                                           key=f"doc_search_{agent_id}")
+            
+            with col2:
+                # Empty column for spacing
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+            
+            with col3:
+                # Add spacing for button alignment and right-align delete button
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+                # Delete all documents button with confirmation - right aligned
+                if can_delete:
+                    if st.button("🗑️ Tüm Dökümanları Sil", 
+                               key=f"delete_all_{agent_id}", 
+                               type="secondary",
+                               use_container_width=True):
+                        st.session_state[f"confirm_delete_all_{agent_id}"] = True
+                        st.rerun()
+            
+            # Confirmation dialog (outside columns)
+            if can_delete and st.session_state.get(f"confirm_delete_all_{agent_id}", False):
+                st.warning("⚠️ **UYARI: Tüm dökümanlar silinecektir, emin misiniz?**")
+                col_yes, col_no = st.columns(2)
+                
+                with col_yes:
+                    if st.button("✅ Evet, Tümünü Sil", key=f"confirm_yes_{agent_id}", type="primary"):
+                        try:
+                            index_name = agent_config.get('search_index')
+                            if not index_name:
+                                st.error("❌ Bu ajan için search index yapılandırılmamış.")
+                            else:
+                                deleted_count = 0
+                                failed_count = 0
+                                
+                                # Delete each document
+                                for doc in documents:
+                                    if client.delete_document(container_name, doc['name'], index_name):
+                                        deleted_count += 1
+                                    else:
+                                        failed_count += 1
+                                
+                                if deleted_count > 0:
+                                    st.success(f"✅ {deleted_count} doküman başarıyla silindi!")
+                                if failed_count > 0:
+                                    st.error(f"❌ {failed_count} doküman silinemedi.")
+                                
+                                st.session_state[f"confirm_delete_all_{agent_id}"] = False
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Toplu silme hatası: {str(e)}")
+                            st.session_state[f"confirm_delete_all_{agent_id}"] = False
+                
+                with col_no:
+                    if st.button("❌ Hayır, İptal Et", key=f"confirm_no_{agent_id}"):
+                        st.session_state[f"confirm_delete_all_{agent_id}"] = False
+                        st.rerun()
+            
+            # Filter documents based on search query
+            filtered_documents = documents
+            if search_query:
+                filtered_documents = [
+                    doc for doc in documents 
+                    if search_query.lower() in doc['name'].lower()
+                ]
+                st.info(f"🔍 {len(filtered_documents)} doküman bulundu (toplam {len(documents)} doküman)")
+            
+            # Add size_mb to filtered documents
+            for doc in filtered_documents:
                 doc['size_mb'] = (doc['size'] / 1024 / 1024) if doc['size'] else 0
             
-            # Create DataFrame for better display
-            df_docs = pd.DataFrame(documents)
-            df_docs['last_modified'] = pd.to_datetime(df_docs['last_modified']).dt.strftime('%Y-%m-%d %H:%M')
-            
-            # Display documents
-            for idx, doc in enumerate(documents):
-                with st.expander(f"📄 {doc['name']} ({doc['size_mb']:.2f} MB)"):
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    with col1:
-                        st.write(f"**Size:** {doc['size_mb']:.2f} MB")
-                        st.write(f"**Modified:** {doc['last_modified']}")
-                        st.write(f"**Type:** {doc['content_type']}")
-                    
-                    with col2:
-                        if can_download:
-                            if st.button("📥 Download", key=f"download_{agent_id}_{idx}"):
-                                try:
-                                    # Download document from blob storage
-                                    download_result = client.download_document(container_name, doc['name'])
-                                    if download_result['success']:
-                                        # Provide download button
-                                        st.download_button(
-                                            label=f"💾 Save {doc['name']}",
-                                            data=download_result['content'],
-                                            file_name=doc['name'],
-                                            mime=doc.get('content_type', 'application/octet-stream'),
-                                            key=f"save_{agent_id}_{idx}"
-                                        )
-                                        st.success(f"✅ {doc['name']} ready for download!")
+            # Display filtered documents
+            if filtered_documents:
+                for idx, doc in enumerate(filtered_documents):
+                    with st.expander(f"📄 {doc['name']} ({doc['size_mb']:.2f} MB)"):
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        with col1:
+                            st.write(f"**Size:** {doc['size_mb']:.2f} MB")
+                            st.write(f"**Modified:** {doc['last_modified']}")
+                            st.write(f"**Type:** {doc['content_type']}")
+                        
+                        with col2:
+                            if can_download:
+                                if st.button("📥 Download", key=f"download_{agent_id}_{idx}"):
+                                    try:
+                                        # Download document from blob storage
+                                        download_result = client.download_document(container_name, doc['name'])
+                                        if download_result['success']:
+                                            # Provide download button
+                                            st.download_button(
+                                                label=f"💾 Save {doc['name']}",
+                                                data=download_result['content'],
+                                                file_name=doc['name'],
+                                                mime=doc.get('content_type', 'application/octet-stream'),
+                                                key=f"save_{agent_id}_{idx}"
+                                            )
+                                            st.success(f"✅ {doc['name']} ready for download!")
+                                        else:
+                                            st.error(f"❌ Failed to download {doc['name']}: {download_result.get('message', 'Unknown error')}")
+                                    except Exception as e:
+                                        st.error(f"❌ Download error: {str(e)}")
+                            else:
+                                st.write("🔒 No download permission")
+                        
+                        with col3:
+                            if can_delete:
+                                if st.button("🗑️ Delete", key=f"delete_{agent_id}_{idx}", type="secondary"):
+                                    # Get index name from agent config - strict mode, no fallback
+                                    index_name = agent_config.get('search_index')
+                                    if not index_name:
+                                        st.error(f"❌ No search index configured for agent '{agent_id}'. Please configure 'search_index' in agent settings.")
                                     else:
-                                        st.error(f"❌ Failed to download {doc['name']}: {download_result.get('message', 'Unknown error')}")
-                                except Exception as e:
-                                    st.error(f"❌ Download error: {str(e)}")
-                        else:
-                            st.write("🔒 No download permission")
-                    
-                    with col3:
-                        if can_delete:
-                            if st.button("🗑️ Delete", key=f"delete_{agent_id}_{idx}", type="secondary"):
-                                # Get index name from agent config - strict mode, no fallback
-                                index_name = agent_config.get('search_index')
-                                if not index_name:
-                                    st.error(f"❌ No search index configured for agent '{agent_id}'. Please configure 'search_index' in agent settings.")
-                                else:
-                                    if client.delete_document(container_name, doc['name'], index_name):
-                                        st.success(f"✅ Deleted {doc['name']}")
-                                        st.info("🔄 Reindexing triggered automatically")
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Failed to delete {doc['name']} from index '{index_name}'")
-                        else:
-                            st.write("🔒 No delete permission")
+                                        if client.delete_document(container_name, doc['name'], index_name):
+                                            st.success(f"✅ Deleted {doc['name']}")
+                                            st.info("🔄 Reindexing triggered automatically")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Failed to delete {doc['name']} from index '{index_name}'")
+                            else:
+                                st.write("🔒 No delete permission")
+            else:
+                if search_query:
+                    st.info(f"🔍 '{search_query}' araması için sonuç bulunamadı")
+                else:
+                    st.info("📭 No documents found")
         else:
             st.info("📭 No documents found in this agent's library")
     
@@ -1039,7 +1181,8 @@ def show_blob_user_management_tab():
             
             if st.form_submit_button("➕ Add User", type="primary"):
                 if new_username and new_username not in users:
-                    if st.session_state.user_manager.add_user(new_username, new_role, new_permissions):
+                    # No password needed - users will authenticate with Azure AD
+                    if st.session_state.user_manager.add_user(new_username, new_role, None, new_permissions):
                         st.success(f"✅ User '{new_username}' added successfully and saved to blob storage!")
                         st.rerun()
                     else:
@@ -1722,7 +1865,9 @@ def show_system_settings_tab():
                             if perms["delete"]:
                                 permissions.append(f"{agent_id}:document_delete")
                         
-                        if st.session_state.user_manager.add_user(new_username, new_role, permissions):
+                        # Use a default password for now - in production, this should be user-provided
+                        default_password = "temp123"
+                        if st.session_state.user_manager.add_user(new_username, new_role, default_password, permissions):
                             st.success(f"✅ User '{new_username}' added successfully!")
                             st.rerun()
                         else:
