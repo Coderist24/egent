@@ -394,6 +394,10 @@ class UserManager:
         """Get user permissions"""
         return self.blob_user_manager.get_user_permissions(username)
     
+    def get_user(self, username: str) -> Optional[Dict]:
+        """Get user by username"""
+        return self.blob_user_manager.get_user(username)
+    
     def has_permission(self, username: str, agent_id: str, permission_type: str) -> bool:
         """Check if user has specific permission for agent"""
         return self.blob_user_manager.has_permission(username, agent_id, permission_type)
