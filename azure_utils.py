@@ -113,7 +113,7 @@ class AzureConfig:
         self.graph_endpoint = "https://graph.microsoft.com/v1.0"
 
         # Other Azure services - Use environment variables or defaults
-        self.redirect_uri = os.getenv("REDIRECT_URI", "https://egent2-d8dyfnadevd0gtgc.westeurope-01.azurewebsites.net/")
+        self.redirect_uri = os.getenv("REDIRECT_URI", "https://egent-hxh3eubahne9ama2.eastus2-01.azurewebsites.net/")
         
         # Storage configuration with fallback authentication
         # Use proper Azure Storage connection string format with valid account name from env
