@@ -2385,241 +2385,133 @@ def show_blob_agent_configuration_tab():
                     st.write(f"**Data Container:** {agent_config.get('data_container', 'N/A')}")
                     st.write(f"**Data File:** {agent_config.get('data_file', 'N/A')}")
                 
-                # Job Configuration Section for ALL agent types  
-                # (Job Configuration button moved to inline with other buttons below)
+                # WebJob ZIP Generator Section (replaces old job management)
                 
-                if st.session_state.get(f"show_jobs_{agent_id}", False):
-                    st.markdown("#### 🔄 Job Management")
+                if st.session_state.get(f"show_webjob_generator_{agent_id}", False):
+                    st.markdown("#### � Azure WebJob Package Generator")
+                    st.info("Generate a ready-to-deploy WebJob ZIP package for Azure App Service")
                     
-                    # Get job manager and existing jobs
+                    # WebJob configuration form
                     try:
-                        from azure_utils import JobManager, AzureConfig
-                        job_manager = JobManager(AzureConfig())
-                        existing_jobs = job_manager.get_jobs_for_agent(agent_id)
+                        from webjob_generator import create_webjob_package
+                        import time
                         
-                        if existing_jobs:
-                                st.write(f"**Existing Jobs ({len(existing_jobs)}):**")
-                                for i, job in enumerate(existing_jobs):
-                                    job_status = job.get('status', 'unknown')
-                                    status_icon = "🟢" if job_status == 'completed' else "🔴" if job_status == 'failed' else "🟡"
-                                    
-                                    # Use container instead of expander to avoid nesting
-                                    job_container = st.container()
-                                    with job_container:
-                                        st.markdown(f"**{status_icon} Job {i+1}: {job.get('id', 'Unknown')[:8]}... - Status: {job_status}**")
-                                        
-                                        col_job1, col_job2 = st.columns(2)
-                                        with col_job1:
-                                            schedule_type = job.get('schedule_type', 'Manual')
-                                            schedule_display = schedule_type.title()
-                                            
-                                            if schedule_type == 'scheduled':
-                                                period = job.get('schedule_period', 'daily')
-                                                hour = job.get('schedule_hour', 0)
-                                                minute = job.get('schedule_minute', 0)
-                                                
-                                                if period == 'daily':
-                                                    schedule_display = f"Daily at {hour:02d}:{minute:02d}"
-                                                elif period == 'weekly':
-                                                    weekday = job.get('schedule_weekday', 'Monday')
-                                                    schedule_display = f"Weekly ({weekday}) at {hour:02d}:{minute:02d}"
-                                                elif period == 'monthly':
-                                                    day = job.get('schedule_day', 1)
-                                                    schedule_display = f"Monthly (Day {day}) at {hour:02d}:{minute:02d}"
-                                                else:
-                                                    schedule_display = f"Scheduled at {hour:02d}:{minute:02d}"
-                                            
-                                            st.write(f"• **Schedule:** {schedule_display}")
-                                            st.write(f"• **Created:** {job.get('created_at', 'Unknown')[:16]}")
-                                            st.write(f"• **Last Run:** {job.get('last_run', 'Never')[:16] if job.get('last_run') else 'Never'}")
-                                        with col_job2:
-                                            st.write(f"• **Data Container:** {job.get('data_container', 'N/A')}")
-                                            st.write(f"• **Data Files:** {', '.join(job.get('data_files', [])[:2])}{'...' if len(job.get('data_files', [])) > 2 else ''}")
-                                            if job.get('last_error'):
-                                                st.error(f"Last Error: {job['last_error'][:100]}...")
-                                        
-                                        # Job actions
-                                        col_action1, col_action2, col_action3 = st.columns(3)
-                                        with col_action1:
-                                            if st.button(f"▶️ Run", key=f"run_job_{i}_{agent_id}"):
-                                                if job_manager.execute_job(job['id']):
-                                                    st.success("✅ Job started!")
-                                                    st.rerun()
-                                                else:
-                                                    st.error("❌ Failed to start job")
-                                        with col_action2:
-                                            if st.button(f"� Logs", key=f"logs_job_{i}_{agent_id}"):
-                                                job_logs = job_manager.get_job_logs(job['id'], limit=5)
-                                                if job_logs:
-                                                    for log_entry in job_logs:
-                                                        st.text(f"{log_entry['timestamp'][:16]} [{log_entry['event_type'].upper()}] {log_entry['message']}")
-                                                else:
-                                                    st.info("No logs found")
-                                        with col_action3:
-                                            if st.button(f"🗑️ Delete", key=f"delete_job_{i}_{agent_id}", type="secondary"):
-                                                if job_manager.delete_job(job['id']):
-                                                    st.success("✅ Deleted!")
-                                                    st.rerun()
-                                                else:
-                                                    st.error("❌ Failed to delete")
-                                        st.markdown("---")
+                        st.markdown("**Configure WebJob Package**")
                         
-                        # Add new job form - using form instead of expander
-                        st.markdown("**➕ Create New Job**")
+                        col1, col2 = st.columns(2)
                         
-                        # Schedule configuration outside form to ensure visibility
-                        st.markdown("**Job Configuration**")
-                        
-                        col_job1, col_job2 = st.columns(2)
-                        with col_job1:
-                            job_schedule_type = st.selectbox(
+                        with col1:
+                            webjob_schedule_type = st.selectbox(
                                 "Schedule Type",
                                 options=["manual", "scheduled"],
                                 index=0,
-                                help="Manual: Run manually when needed. Scheduled: Run automatically at specified intervals.",
-                                key=f"job_schedule_{agent_id}"
+                                help="Manual: Run manually when needed. Scheduled: Run automatically via cron expression.",
+                                key=f"webjob_schedule_{agent_id}"
                             )
                             
-                            # Initialize schedule variables
-                            schedule_period = None
-                            schedule_hour = None
-                            schedule_minute = None
-                            schedule_weekday = None
-                            schedule_day = None
-                            
-                            if job_schedule_type == "scheduled":
-                                # Schedule period selection
-                                schedule_period = st.selectbox(
-                                    "Schedule Period",
-                                    options=["daily", "weekly", "monthly"],
-                                    index=0,
-                                    help="How often the job should run",
-                                    key=f"job_period_{agent_id}"
+                            webjob_cron = ""
+                            if webjob_schedule_type == "scheduled":
+                                st.markdown("**⏰ Schedule Configuration**")
+                                schedule_preset = st.selectbox(
+                                    "Schedule Preset",
+                                    options=[
+                                        "Custom",
+                                        "Every hour",
+                                        "Every day at 9 AM",
+                                        "Every Monday at 9 AM",
+                                        "First day of month at 9 AM"
+                                    ],
+                                    key=f"webjob_preset_{agent_id}"
                                 )
                                 
-                                # Time selection (without nested columns)
-                                st.markdown("**⏰ Execution Time:**")
-                                schedule_hour = st.number_input(
-                                    "Hour (24h)", 
-                                    min_value=0, 
-                                    max_value=23, 
-                                    value=9, 
-                                    key=f"job_hour_{agent_id}"
-                                )
-                                schedule_minute = st.number_input(
-                                    "Minute", 
-                                    min_value=0, 
-                                    max_value=59, 
-                                    value=0, 
-                                    key=f"job_minute_{agent_id}"
-                                )
-                                
-                                # Additional period-specific options
-                                if schedule_period == "weekly":
-                                    schedule_weekday = st.selectbox(
-                                        "Day of Week",
-                                        options=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-                                        index=0,
-                                        help="Which day of the week to run",
-                                        key=f"job_weekday_{agent_id}"
+                                if schedule_preset == "Custom":
+                                    webjob_cron = st.text_input(
+                                        "Cron Expression",
+                                        value="0 0 9 * * *",
+                                        help="Format: second minute hour day month weekday",
+                                        key=f"webjob_cron_{agent_id}"
                                     )
-                                elif schedule_period == "monthly":
-                                    schedule_day = st.number_input(
-                                    "Day of Month", 
-                                        min_value=1, 
-                                        max_value=28, 
-                                        value=1, 
-                                        help="Which day of the month to run (1-28 for safety)",
-                                        key=f"job_day_{agent_id}"
-                                    )
-                                    
-                                # Show schedule summary
-                                if schedule_period == "daily":
-                                    schedule_summary = f"Every day at {schedule_hour:02d}:{schedule_minute:02d}"
-                                elif schedule_period == "weekly":
-                                    schedule_summary = f"Every {schedule_weekday} at {schedule_hour:02d}:{schedule_minute:02d}"
-                                else:  # monthly
-                                    schedule_summary = f"Day {schedule_day} of every month at {schedule_hour:02d}:{schedule_minute:02d}"
+                                elif schedule_preset == "Every hour":
+                                    webjob_cron = "0 0 * * * *"
+                                elif schedule_preset == "Every day at 9 AM":
+                                    webjob_cron = "0 0 9 * * *"
+                                elif schedule_preset == "Every Monday at 9 AM":
+                                    webjob_cron = "0 0 9 * * 1"
+                                else:  # First day of month
+                                    webjob_cron = "0 0 9 1 * *"
                                 
-                                st.info(f"📅 **Schedule:** {schedule_summary}")
+                                st.code(f"Cron: {webjob_cron}", language="text")
                         
-                        with col_job2:
-                            job_data_container = st.text_input(
-                            "Data Container",
+                        with col2:
+                            webjob_data_container = st.text_input(
+                                "Data Container",
                                 value=agent_config.get('data_container', ''),
                                 placeholder="sales-data",
-                                help="Blob container containing data files",
-                                key=f"job_container_{agent_id}"
+                                help="Blob container containing data files to process",
+                                key=f"webjob_container_{agent_id}"
                             )
                             
-                            job_data_files = st.text_area(
+                            webjob_data_files = st.text_area(
                                 "Data Files (one per line)",
                                 value=agent_config.get('data_file', ''),
-                                placeholder="Sales Raw Data Final_v2.xlsx\nMonthly Report.xlsx",
-                                help="List of files to upload to code interpreter",
-                                key=f"job_files_{agent_id}"
+                                placeholder="Sales_Raw_Data_Final_v2.xlsx\nMonthly_Report.xlsx",
+                                help="List of files to process in the WebJob",
+                                key=f"webjob_files_{agent_id}"
                             )
                         
-                        job_description = st.text_input(
-                            "Job Description (optional)",
-                            placeholder="Monthly data refresh job",
-                            key=f"job_desc_{agent_id}"
-                        )
+                        st.markdown("---")
                         
-                        # Form for submit button only
-                        with st.form(f"add_job_{agent_id}"):
-                            st.markdown("**Create Job**")
-                            
-                            if st.form_submit_button("➕ Create Job", type="primary"):
-                                # Get values from session state since form fields are outside
-                                job_schedule_type = st.session_state.get(f"job_schedule_{agent_id}", "manual")
-                                job_data_container = st.session_state.get(f"job_container_{agent_id}", "")
-                                job_data_files = st.session_state.get(f"job_files_{agent_id}", "")
-                                job_description = st.session_state.get(f"job_desc_{agent_id}", "")
-                                
-                                schedule_period = st.session_state.get(f"job_period_{agent_id}", "daily")
-                                schedule_hour = st.session_state.get(f"job_hour_{agent_id}", 9)
-                                schedule_minute = st.session_state.get(f"job_minute_{agent_id}", 0)
-                                schedule_weekday = st.session_state.get(f"job_weekday_{agent_id}", "Monday")
-                                schedule_day = st.session_state.get(f"job_day_{agent_id}", 1)
-                                
-                                if job_data_container and job_data_files:
+                        # Generate button
+                        if st.button("🎯 Generate WebJob ZIP Package", type="primary", key=f"generate_webjob_{agent_id}"):
+                            if webjob_data_container and webjob_data_files:
+                                with st.spinner("📦 Generating WebJob package..."):
                                     # Parse data files
-                                    data_files_list = [f.strip() for f in job_data_files.split('\n') if f.strip()]
+                                    data_files_list = [f.strip() for f in webjob_data_files.split('\n') if f.strip()]
                                     
-                                    # Get current agent type dynamically
-                                    current_agent_type = agent_config.get('agent_type', 'Data Agent')
-                                    
-                                    job_config = {
+                                    # Prepare configuration
+                                    webjob_config = {
                                         'agent_id': agent_id,
-                                        'agent_type': current_agent_type,
-                                        'schedule_type': job_schedule_type,
-                                        'data_container': job_data_container,
+                                        'agent_name': agent_config.get('name', agent_id),
+                                        'data_container': webjob_data_container,
                                         'data_files': data_files_list,
-                                        'description': job_description
+                                        'schedule_type': webjob_schedule_type,
+                                        'schedule_cron': webjob_cron if webjob_schedule_type == 'scheduled' else None
                                     }
                                     
-                                    if job_schedule_type == "scheduled":
-                                        job_config['schedule_period'] = schedule_period
-                                        job_config['schedule_hour'] = schedule_hour
-                                        job_config['schedule_minute'] = schedule_minute
-                                        
-                                        if schedule_period == "weekly":
-                                            job_config['schedule_weekday'] = schedule_weekday
-                                        elif schedule_period == "monthly":
-                                            job_config['schedule_day'] = schedule_day
+                                    # Generate package
+                                    zip_bytes = create_webjob_package(webjob_config)
                                     
-                                    if job_manager.create_job(job_config):
-                                        st.success("✅ Job created successfully!")
-                                        st.rerun()
+                                    if zip_bytes:
+                                        st.success("✅ WebJob package generated successfully!")
+                                        
+                                        # Provide download button
+                                        filename = f"webjob_{agent_id}_{int(time.time())}.zip"
+                                        st.download_button(
+                                            label="� Download WebJob ZIP Package",
+                                            data=zip_bytes,
+                                            file_name=filename,
+                                            mime="application/zip",
+                                            key=f"download_webjob_{agent_id}_{int(time.time())}"
+                                        )
+                                        
+                                        st.info("""
+                                        **📋 Next Steps:**
+                                        1. ⬇️ Download the ZIP package above
+                                        2. 🌐 Go to Azure Portal > Your Web App > WebJobs
+                                        3. ➕ Click 'Add' and upload this ZIP file
+                                        4. ⚙️ Configure environment variables (AZURE_STORAGE_CONNECTION_STRING)
+                                        5. ▶️ Run or schedule the WebJob as needed
+                                        
+                                        📖 The package includes complete deployment instructions in README.md
+                                        """)
                                     else:
-                                        st.error("❌ Failed to create job")
-                                else:
-                                    st.error("❌ Please fill in Data Container and Data Files")
+                                        st.error("❌ Failed to generate WebJob package")
+                            else:
+                                st.error("❌ Please fill in Data Container and Data Files")
                     
-                    except Exception as job_error:
-                        st.error(f"❌ Job management error: {job_error}")
-                        st.info("💡 Job management requires Azure Blob Storage connection")
+                    except Exception as webjob_error:
+                        st.error(f"❌ WebJob generator error: {webjob_error}")
+                        st.info("💡 WebJob generator requires webjob_generator module")
             
             # Action buttons in a horizontal row
             button_col1, button_col2, button_col3, button_col4 = st.columns(4)
@@ -2630,10 +2522,10 @@ def show_blob_agent_configuration_tab():
                     st.rerun()
             
             with button_col2:
-                if st.button("🔄 Job Configuration", key=f"show_job_config_{agent_id}"):
-                    # Toggle Job Configuration visibility and make sure the expander stays open
-                    st.session_state[f"show_jobs_{agent_id}"] = not st.session_state.get(
-                        f"show_jobs_{agent_id}", False
+                if st.button("� WebJob Generator", key=f"show_webjob_gen_{agent_id}"):
+                    # Toggle WebJob Generator visibility
+                    st.session_state[f"show_webjob_generator_{agent_id}"] = not st.session_state.get(
+                        f"show_webjob_generator_{agent_id}", False
                     )
                     st.session_state[expander_key] = True
                     st.rerun()

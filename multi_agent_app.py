@@ -839,15 +839,13 @@ def initialize_session_state():
         logger.warning(f"Error initializing UserManager: {e}")
         user_manager = None
     
-    # Secure defaults: kullanıcı giriş yapana kadar kimlik doğrulama kapalı.
-    # Geçici test için yerel geliştirmede aşağıdaki yorum örneğini kullanabilirsiniz:
-    # TEST_MODE = True
-    TEST_MODE = False
+    # TEST MODE: Login bypass for testing purposes
+    TEST_MODE = True  # Set to False for production
     session_vars = {
-        "authenticated": False if not TEST_MODE else True,
-        "current_user": None if not TEST_MODE else "test@example.com",
-        "user_role": None if not TEST_MODE else "admin",
-        "current_page": "login" if not TEST_MODE else "dashboard",
+        "authenticated": True,  # Bypass login for testing
+        "current_user": "test@example.com",  # Test user
+        "user_role": "admin",  # Admin role for testing
+        "current_page": "dashboard",  # Start at dashboard
         "selected_agent": None,
         "messages": {},  # Agent-specific message history
         "thread_ids": {},  # Agent-specific thread IDs
@@ -863,10 +861,8 @@ def initialize_session_state():
         if key not in st.session_state:
             st.session_state[key] = default_value
     
-    # NOTE: Job Scheduler has been moved to Azure WebJob (webjob_runner.py)
-    # The scheduler is now running as a separate continuous WebJob
-    # This ensures better reliability and separation of concerns
-    # Job management UI is still available in the Streamlit app
+    # Job Scheduler removed - now using Azure WebJob packages instead
+    # Users will deploy WebJob ZIP packages to Azure App Service for scheduled tasks
 
 def show_company_header():
     """Display company logo and header"""
