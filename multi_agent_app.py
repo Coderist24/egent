@@ -839,20 +839,19 @@ def initialize_session_state():
         logger.warning(f"Error initializing UserManager: {e}")
         user_manager = None
     
-    # TEST MODE: Login bypass for testing purposes
-    TEST_MODE = True  # Set to False for production
+    # Initialize session state
     session_vars = {
-        "authenticated": True,  # Bypass login for testing
-        "current_user": "test@example.com",  # Test user
-        "user_role": "admin",  # Admin role for testing
-        "current_page": "dashboard",  # Start at dashboard
+        "authenticated": False,  # User must login
+        "current_user": None,
+        "user_role": None,
+        "current_page": "login",  # Start at login page
         "selected_agent": None,
         "messages": {},  # Agent-specific message history
         "thread_ids": {},  # Agent-specific thread IDs
         "conversation_ids": {},  # Agent-specific conversation session IDs for complete isolation
         "ai_clients": {},  # Agent-specific AI clients
         "connection_status": {},  # Agent-specific connection status
-        "user_permissions": {} if not TEST_MODE else {"all": True},
+        "user_permissions": {},
         "agents": agents,
         "user_manager": user_manager
     }
