@@ -2468,18 +2468,32 @@ def show_blob_agent_configuration_tab():
                                     # Parse data files
                                     data_files_list = [f.strip() for f in webjob_data_files.split('\n') if f.strip()]
                                     
-                                    # Prepare configuration
-                                    webjob_config = {
-                                        'agent_id': agent_id,
-                                        'agent_name': agent_config.get('name', agent_id),
-                                        'data_container': webjob_data_container,
-                                        'data_files': data_files_list,
-                                        'schedule_type': webjob_schedule_type,
-                                        'schedule_cron': webjob_cron if webjob_schedule_type == 'scheduled' else None
-                                    }
+                                    # Get agent's Azure AI connection info from config
+                                    # Agent config'de 'connection_string' ve 'agent_id' key'leri var
+                                    azure_ai_connection_string = agent_config.get('connection_string', '')
+                                    azure_ai_agent_id = agent_config.get('agent_id', '')
                                     
-                                    # Generate package
-                                    zip_bytes = create_webjob_package(webjob_config)
+                                    if not azure_ai_connection_string or not azure_ai_agent_id:
+                                        st.error("❌ Agent configuration is missing Azure AI connection info!")
+                                        st.info("Please ensure the agent has 'Connection String' and 'AI Agent ID' configured.")
+                                        # Show what fields are available for debugging
+                                        with st.expander("🔧 Debug Info - Available Fields"):
+                                            st.json(agent_config)
+                                    else:
+                                        # Prepare configuration
+                                        webjob_config = {
+                                            'agent_id': agent_id,
+                                            'agent_name': agent_config.get('name', agent_id),
+                                            'azure_ai_project_connection_string': azure_ai_connection_string,
+                                            'azure_ai_agent_id': azure_ai_agent_id,
+                                            'data_container': webjob_data_container,
+                                            'data_files': data_files_list,
+                                            'schedule_type': webjob_schedule_type,
+                                            'schedule_cron': webjob_cron if webjob_schedule_type == 'scheduled' else None
+                                        }
+                                        
+                                        # Generate package
+                                        zip_bytes = create_webjob_package(webjob_config)
                                     
                                     if zip_bytes:
                                         st.success("✅ WebJob package generated successfully!")
@@ -3278,3 +3292,4 @@ AZURE_AI_PROJECT_NAME=your_project_name
         st.write("• Invalid credentials")
         st.write("• Network connectivity issues")
         st.write("• Azure AI Projects service not available")
+
